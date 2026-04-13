@@ -1,0 +1,14 @@
+# State files (ephemeral)
+raw/sessions/state.json
+
+# Obsidian metadata (optional — only present if opened in Obsidian)
+.obsidian/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temp/scratch
+scratch/
+*.tmp
