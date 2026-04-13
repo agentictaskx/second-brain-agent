@@ -85,27 +85,37 @@ Analysis of 7 days of vault logs + mai-cos structure shows both systems have com
 
 Karpathy's P7: "Maintenance cost approaches zero." More agents = more agent definitions to maintain, more handoff points to break, more context loading overhead. The system should have the **fewest agents that cover all operations**.
 
-**Rule: If two agents differ only by a parameter, they're one agent.**
+**Rule: If two agents differ only by a parameter, they're one agent. If they need different context loads, they're different agents.**
 
 ```
-Manager (orchestrator — loads identity, reads schema, routes operations)
+Manager (orchestrator — loads identity, reads schema, classifies intent, routes operations)
   │
   ├── Retriever   — ALL inbound data (broad sweep OR targeted — parameter-driven)
-  ├── Thinker     — reads vault + synthesizes + drafts output using playbooks
+  ├── Analyst     — reads vault + extracts entities + synthesizes answers (investigative)
+  ├── Composer    — drafts styled output using playbooks + identity (creative)
   ├── Actor       — ALL mutations (write vault, send externally, update index/log, run checklist)
-  └── Auditor     — read-only health checks, lint, first-principles audit
+  └── Auditor     — read-only health checks, lint, schema audit, post-op verification
 ```
 
-### Why 4 Specialists (Not 9)
+### Why 5 Specialists (Not 4, Not 9)
 
-| Old (9 agents) | New (4 agents) | Why merged |
-|----------------|----------------|------------|
-| Gatherer + Fetcher | **Retriever** | "Broad sweep" vs "targeted pull" is a parameter, not a different agent |
-| Researcher + Composer | **Thinker** | Both read vault + produce output. Researcher synthesizes answers, Composer formats them — but formatting requires understanding, and synthesis requires style. They're the same cognitive task. |
-| Writer + Dispatcher + Finalizer | **Actor** | All three mutate state. The Actor writes vault pages, sends externally (with raw-first), and runs the completion checklist. It knows what it touched, so it can do cross-linking and index updates. |
-| Auditor | **Auditor** | Stays separate — read-only scan should never be mixed with mutation. |
+The Round 2 adversarial review (Finding 1) correctly identified that the Thinker was doing 4 different cognitive jobs with different context needs. Split into Analyst + Composer:
 
-**Total: 1 Manager + 4 Specialists = 5 agent definitions to maintain.**
+| Agent | Cognitive Mode | Context Load | Why Separate |
+|-------|---------------|--------------|--------------|
+| **Analyst** | Investigative — find facts, extract entities, connect patterns | index.md + relevant wiki pages + entity routing table | Needs vault breadth — reads many pages lightly |
+| **Composer** | Creative — match tone, structure, audience | playbook + identity.md + people.md (recipient) + data from Analyst | Needs style depth — reads few files deeply |
+
+These can't merge because they need **different context**. The Analyst reads 10+ wiki pages to extract entities. The Composer reads 1 playbook + identity + people to draft styled output. Loading both contexts into one agent wastes half the context window on irrelevant material.
+
+| Old (4 specialists) | New (5 specialists) | Change |
+|---------------------|---------------------|--------|
+| Thinker (4 jobs) | **Analyst** (entity extraction + query synthesis) + **Composer** (styled drafting) | Split by cognitive mode + context needs |
+| Retriever | **Retriever** (unchanged) | — |
+| Actor | **Actor** (unchanged) | — |
+| Auditor | **Auditor** (expanded — now also does post-op verification + schema audit) | Expanded scope |
+
+**Total: 1 Manager + 5 Specialists = 6 agent definitions.**
 
 ### Agent Roster
 
@@ -115,68 +125,95 @@ Manager (orchestrator — loads identity, reads schema, routes operations)
 - **Key behaviors:**
   - ALWAYS reads `CLAUDE.md` + `wiki/identity.md` at session start (first invocation). Caches identity in session ledger for subsequent invocations.
   - Classifies user intent → selects operation type → selects playbook (by intent + audience + format, NOT keyword matching)
+  - **When intent is ambiguous:** Asks the user. e.g., "Check on Kunyang" → "Do you want me to: (a) look up what I know about Kunyang, (b) check ADO for his latest updates, or (c) draft a message to him?"
   - Spawns specialists with tailored context (identity excerpt, relevant schema sections, playbook path, tool discovery sections)
   - Only agent that talks to user
-  - **Does NOT do entity extraction or analysis** — that's the Thinker's job
+  - **Does NOT do entity extraction or analysis** — that's the Analyst's job
 - **Truly thin:** Parse intent → select playbook → spawn pipeline → present results → confirm with user
+- **Error handling:** When a specialist returns `status: partial` or `status: failed`, Manager presents what succeeded, notes what failed, and offers to retry. Never silently drops failures.
 
 #### Retriever (`agents/retriever.md`)
 - **Role:** ALL inbound data retrieval — broad sweep (daily brief) or targeted (one doc/work item)
-- **Tools:** Read, Grep, Glob, Bash, + all inbound MCP tools (WorkIQ-Word, WorkIQ-Teams, ADO, WorkIQ-Mail, WorkIQ-Calendar, WorkIQ-OneDrive, Obsidian MCP)
+- **Tools:** Read, Write, Grep, Glob, Bash, + all inbound MCP tools
 - **Key behaviors:**
   - Reads `wiki/tools.md` for what works on this device. Tries preferred tool, falls back gracefully.
   - Reads `wiki/subscriptions.md` when doing broad sweeps (daily brief)
-  - Saves everything to `raw/` (Raw-First rule) — the Retriever is the ONLY agent that creates raw source files
-  - Returns structured content + metadata to Manager. Never writes to wiki/.
-- **Mode parameter:** Manager tells it `mode: sweep` (all subscriptions) or `mode: targeted` (specific source)
-- **Handles:** SharePoint docs, ADO work items, Teams channels/chats, email inbox, calendar, PowerPoint files, local files, Obsidian notes
+  - Saves everything to `raw/` (Raw-First rule) — creates raw source files AND adds index entry for each
+  - Returns structured content + metadata + list of raw files created
+- **Mode parameter:** Manager tells it `mode: sweep` or `mode: targeted`
+- **Error response format:**
+  ```
+  { status: "success" | "partial" | "failed",
+    raw_files_created: ["raw/documents/..."],
+    content: { ... },
+    failed_sources: [{ source: "...", error: "...", recoverable: true/false }] }
+  ```
 
-#### Thinker (`agents/thinker.md`)
-- **Role:** The brain — reads vault, understands context, extracts entities, synthesizes answers, drafts styled output
+#### Analyst (`agents/analyst.md`)
+- **Role:** The investigator — reads vault, extracts entities, synthesizes answers, produces routing plans
 - **Tools:** Read, Grep, Glob, Bash
 - **Key behaviors:**
   - Reads `index.md` first (P8 index-first navigation), then drills into relevant pages
-  - Reads `wiki/identity.md` for user context (role, focus, preferences)
-  - Reads `wiki/people.md` for recipient/person context when relevant
-  - Reads the selected playbook from `playbooks/` for output style
+  - Reads `wiki/identity.md` for user context (role, focus)
   - Does entity extraction + routing recommendations (what wiki pages to update, with what content)
-  - Synthesizes answers with `[[wikilink]]` citations
-  - Drafts styled output (messages, emails, RAGs, slides, summaries, analyses)
-  - Returns: answer/draft + entity routing plan + action items + file-back recommendations (P5)
-  - **Read-only** — never writes to vault. Returns instructions for what should be written.
-- **This is the core intelligence.** It has full wiki context + playbook style + identity awareness. It decides WHAT to write and HOW to write it. The Actor executes those decisions.
+  - Synthesizes answers with `[[wikilink]]` citations for queries
+  - Classifies queries as **lookup** (simple fact retrieval, no file-back) or **synthesis** (new insight produced, recommend file-back per P5)
+  - Returns: entity routing plan + action items + answer (if query) + file-back recommendation
+  - **Read-only** — never writes to vault
+
+#### Composer (`agents/composer.md`)
+- **Role:** The stylist — drafts output content using playbooks + identity + recipient context
+- **Tools:** Read, Grep, Glob, Bash
+- **Key behaviors:**
+  - ALWAYS reads the selected playbook from `playbooks/`
+  - Reads `wiki/identity.md` for communication preferences and voice
+  - Reads `wiki/people.md` for recipient context when relevant
+  - Receives data/facts from the Analyst's output — doesn't re-read vault pages
+  - Drafts styled output (messages, emails, RAGs, slides, summaries, analyses, daily briefs)
+  - **Read-only** — returns draft content, never writes
+- **Style learning:** When user corrects output, Manager spawns Actor to update playbook.
 
 #### Actor (`agents/actor.md`)
 - **Role:** ALL mutations — writes vault pages, sends externally, updates index/log/session-ledger, runs completion checklist
-- **Tools:** Read, Write, Edit, Grep, Glob, Bash, + outbound MCP tools (WorkIQ-Teams, WorkIQ-Mail, ADO wit_update_work_item)
+- **Tools:** Read, Write, Edit, Grep, Glob, Bash, + outbound MCP tools
 - **Key behaviors:**
   - Receives a structured mutation plan from Manager (list of pages to write/edit, content for each, external sends)
   - Executes mutations in order: raw/ first (Rule 1), then wiki/ pages, then external sends
-  - **Serializes writes to the same page** — if the mutation plan has 3 updates to wiki/people.md, Actor does them sequentially in one invocation. Different pages can be done in parallel by spawning multiple Actors.
-  - Updates `index.md` after all wiki writes (knows what it touched)
-  - Appends to `log.md` and `raw/sessions/` session ledger
-  - Runs the **completion checklist** as hard gate before returning:
-    ```
-    [ ] Raw source saved to raw/
-    [ ] Session ledger updated
-    [ ] Wiki pages updated with [[source citations]]
-    [ ] index.md updated (if new pages)
-    [ ] log.md appended
-    ```
+  - **Serializes writes to the same page** — different pages can be parallelized via multiple Actor instances
+  - Updates `index.md` after all wiki writes
+  - Updates `playbooks/_index.md` whenever it creates/modifies a playbook
+  - Appends to `log.md` and session ledger
+  - Runs the **completion checklist** as hard gate before returning
   - For external sends: saves outbound to `raw/` BEFORE sending (Raw-First), reports message IDs
-  - Knows tool limitations from `wiki/tools.md` (e.g., Teams @mentions broken)
-- **Why merged:** Writer, Dispatcher, and Finalizer all mutate state. Merging them into one agent means: (a) no write conflicts — one agent controls all writes, (b) completion checklist is enforced by the agent doing the work, not a separate post-processing pass, (c) cross-linking happens as part of writing, not after.
+  - **Error response format:**
+    ```
+    { status: "success" | "partial" | "failed",
+      pages_written: ["wiki/people.md", ...],
+      pages_failed: [{ page: "...", error: "..." }],
+      sends_completed: [{ channel: "...", message_id: "..." }],
+      sends_failed: [{ channel: "...", error: "...", recoverable: true/false }],
+      checklist: { raw_saved: true, session_ledger: true, ... } }
+    ```
 
 #### Auditor (`agents/auditor.md`)
-- **Role:** Read-only health checks. Never mixed with mutation.
+- **Role:** Read-only health checks + post-operation verification + schema audit
 - **Tools:** Read, Grep, Glob, Bash
 - **Key behaviors:**
-  - Wiki lint: stale pages, orphans, broken links, bidirectional link check
-  - Todo accountability: flag 7+ day items, mark done items
-  - First-principles audit (P4/P5/P8/P10)
-  - Subscription health: stale channels, untested tools
-  - Identity completeness: unfilled fields, missing people entries
-  - Gap analysis: suggest sources/questions
+  - **Wiki lint:** stale pages, orphans, broken links, bidirectional link check
+  - **Todo accountability:** flag 7+ day items, mark done items
+  - **First-principles audit** (P4/P5/P8/P10)
+  - **Post-operation verification** (new): After every Actor completes, Manager can optionally spawn Auditor to verify:
+    - Every raw/ file has a corresponding index.md entry
+    - log.md's last entry matches the operation just completed
+    - All wiki pages referenced in the Actor's mutation plan were actually written
+    - This is "someone else checks my homework" — not self-verification
+  - **Schema audit** (new): During lint, also checks:
+    - Entity routing table for overlapping types (e.g., "vendor" and "partner" with 80% overlap → suggest merge)
+    - Playbook registry for duplicates or gaps
+    - Inbound/outbound maps for stale entries (tools that haven't been used in 30+ days)
+    - Entity type count — if approaching 20, flag for review ("merge or justify")
+  - **Subscription health:** stale channels, untested tools
+  - **Identity completeness:** unfilled fields, missing people entries
   - Returns structured lint report. Does NOT fix issues — Manager spawns Actor for fixes.
 
 ### Parallelism Model
@@ -473,64 +510,77 @@ This system: Ingest → extract entities → route to wiki pages → cross-link 
 
 The key difference (Karpathy P1): **knowledge is compiled once and kept current**. When you ask about Vikas, you don't get chunks from 5 raw documents — you get wiki/people.md which already synthesizes everything known about Vikas, with citations back to every raw source. The compilation happened at ingest time, not at query time.
 
-## Workflows (4-Agent Model)
+## Workflows (5-Specialist Model)
 
 ### Daily Brief ("catch me up", "morning brief", "start my day")
 ```
 SKILL → Manager
   1. Load identity (session start) + read wiki/top-of-mind.md + wiki/todo.md
-  2. Spawn Retriever (mode: sweep) → pull all signals per wiki/subscriptions.md, save to raw/
-  3. Spawn Thinker → cross-reference signals against vault, draft brief using daily-brief playbook
-  4. Present brief to user
-  5. Spawn Actor(s) → update wiki/todo.md, wiki/top-of-mind.md, index, log, session ledger
+  2. Spawn Retriever (mode: sweep) → pull all signals per wiki/subscriptions.md, save to raw/, add to index
+  3. Spawn Analyst → cross-reference signals against vault knowledge (who are these people? what projects?)
+  4. Spawn Composer → draft brief using daily-brief playbook + Analyst's findings
+  5. Present brief to user
+  6. Spawn Actor(s) → update wiki/todo.md, wiki/top-of-mind.md, log, session ledger
+  7. (Optional) Spawn Auditor → post-op verify: raw files indexed, log updated
 ```
 
 ### Ingest ("ingest this", "save this", "process this")
 ```
 SKILL → Manager
-  1. If source is external: Spawn Retriever (mode: targeted) → fetch + save to raw/
-     If source is pasted text: Manager passes directly to Thinker
-  2. Spawn Thinker → analyze content, extract entities, produce routing plan + action items
+  1. If source is external: Spawn Retriever (mode: targeted) → fetch + save to raw/ + index entry
+     If source is pasted text: Manager passes directly to Analyst
+  2. Spawn Analyst → analyze content, extract entities, produce routing plan + action items
   3. Present takeaways to user, await confirmation
-  4. Spawn Actor(s) in parallel → raw source + wiki page updates (grouped by target page)
+  4. Spawn Actor(s) in parallel → wiki page updates (grouped by target page)
      Actor runs completion checklist as hard gate
+  5. (Optional) Spawn Auditor → post-op verify: all routed pages written, index complete
 ```
 
 ### Query ("what do I know about X", "status of Y")
 ```
 SKILL → Manager
   1. If external data needed: Spawn Retriever first
-  2. Spawn Thinker → read index + pages + synthesize cited answer
+  2. Spawn Analyst → read index + pages + synthesize cited answer
+     Analyst classifies: LOOKUP (simple fact) or SYNTHESIS (new insight)
   3. Present answer to user
-  4. If file-back recommended (P5): Spawn Actor → write synthesis page + update index/log
+  4. If SYNTHESIS + file-back recommended (P5): Ask user → Spawn Actor to write overview page
+  5. If LOOKUP: No file-back prompt (don't ask for simple fact retrieval)
 ```
 
 ### Communication ("post to Teams", "send email", "write RAG", "draft message")
 ```
 SKILL → Manager
-  1. Select playbook by intent + audience + format (using wiki/people.md for recipient context)
-  2. If data needed: Spawn Retriever
-  3. Spawn Thinker → draft using playbook + data + identity + recipient context
-  4. Present draft to user, await confirmation/corrections
-  5. If user corrects: Spawn Actor to update playbook, then re-run Thinker with updated playbook
-  6. Spawn Actor → save raw (outbound) + send externally + update log/session ledger
+  1. Classify intent. If ambiguous, ask user: "Do you want me to (a) draft a message, (b) post to a channel, (c) send an email?"
+  2. Select playbook by intent + audience + format (using wiki/people.md for recipient context)
+  3. If data needed: Spawn Retriever → fetch source data
+  4. Spawn Analyst → extract key facts from source data
+  5. Spawn Composer → draft using playbook + Analyst's facts + identity + recipient context
+  6. Present draft to user, await confirmation/corrections
+  7. If user corrects: Spawn Actor to update playbook, then re-run Composer
+  8. Spawn Actor → save raw (outbound) + send externally + update log/session ledger
 ```
 
 ### Compose ("write a slide", "summarize this doc", "analyze this")
 ```
 SKILL → Manager
   1. If source is external: Spawn Retriever
-  2. Select playbook by intent + audience + format
-  3. Spawn Thinker → draft using playbook + source data + vault context
-  4. Present to user, iterate (re-run Thinker with corrections)
-  5. If user wants to send: → Actor sends + saves raw
-  6. If user wants to save to wiki: → Actor writes to wiki
+  2. Spawn Analyst → gather vault context + extract key facts
+  3. Select playbook by intent + audience + format
+  4. Spawn Composer → draft using playbook + Analyst's output
+  5. Present to user, iterate (re-run Composer with corrections)
+  6. If user wants to send: → Actor sends + saves raw
+  7. If user wants to save to wiki: → Actor writes to wiki
 ```
 
 ### Lint ("health check", "lint")
 ```
 SKILL → Manager
-  1. Spawn Auditor → read-only scan of entire wiki
+  1. Spawn Auditor → full scan:
+     - Wiki health (stale, orphans, broken links, bidirectional)
+     - Todo accountability (7+ day items)
+     - First-principles audit (P4/P5/P8/P10)
+     - Schema audit (entity type overlap, playbook gaps, stale inbound/outbound entries)
+     - Subscription health, identity completeness
   2. Present lint report to user
   3. For auto-fixable items: Spawn Actor(s) to fix
 ```
@@ -544,16 +594,20 @@ SKILL → Manager
      - Person info → wiki/people.md
      - Tool behavior → wiki/tools.md
      - Subscription change → wiki/subscriptions.md
-  2. Spawn Actor to update the correct page
+     - New entity type → wiki/{name}.md + schema update
+  2. Spawn Actor to update the correct page (+ playbooks/_index.md if playbook changed)
   3. Confirm to user what was saved and where
 ```
 
 ### Key Workflow Properties
 
-- **Daily brief is 3 agent spawns** (Retriever → Thinker → Actor), not 5
-- **No sequential Gatherer→Researcher→Composer→Writers→Finalizer chain**
-- **Actor always runs completion checklist** — it's built into the write agent, not a separate pass
-- **User corrections trigger playbook updates** — the system learns every session
+- **Analyst and Composer are always sequential** — Composer needs Analyst's output as input
+- **Analyst does entity extraction (investigative), Composer does styled drafting (creative)** — different cognitive modes, different context loads
+- **Manager asks when ambiguous** — one round-trip prevents pipeline misfire
+- **Lookup vs Synthesis classification** — simple lookups skip the file-back prompt
+- **Post-op verification is optional** — Manager can spawn Auditor after Actor for critical operations (ingest, daily brief) but skips for simple queries
+- **All agents return structured error responses** — Manager handles partial results gracefully
+- **Actor updates playbooks/_index.md** whenever it creates/modifies a playbook — no stale registry
 
 ## Storage: Single Folder
 
@@ -579,10 +633,11 @@ second-brain-agent/                # ← This IS your data store. Put it anywher
 ├── index.md                       # Wiki catalog (agents read first for queries)
 ├── log.md                         # Event log, append-only
 │
-├── agents/                        # Agent definitions (5 total)
+├── agents/                        # Agent definitions (6 total)
 │   ├── manager.md
 │   ├── retriever.md
-│   ├── thinker.md
+│   ├── analyst.md
+│   ├── composer.md
 │   ├── actor.md
 │   └── auditor.md
 │
@@ -676,12 +731,424 @@ The system works with ANY level of setup:
 
 **Nothing breaks on empty state.** Each agent checks what data exists and degrades gracefully. The Retriever skips sources without subscriptions. The Thinker drafts without a playbook if none match. The Actor creates pages that don't exist yet.
 
-## Tasks
+## Agent Prompt Contracts
+
+Each specialist agent receives a structured prompt from the Manager. These contracts define the **exact interface** — what the Manager sends and what the agent returns. This is the most critical implementation detail: if the contracts are wrong, the agents can't interoperate.
+
+### Contract Format
+
+Every agent prompt from the Manager follows this structure:
+
+```
+## Identity Context
+[Excerpt from wiki/identity.md — name, role, team, focus areas]
+
+## Task
+[What to do — operation-specific]
+
+## Inputs
+[Data the agent needs — file paths, content, parameters]
+
+## Schema Context
+[Relevant sections from CLAUDE.md — only what this agent needs]
+
+## Constraints
+[Rules this agent must follow — read-only, raw-first, etc.]
+
+## Expected Output Format
+[Exact JSON/markdown structure the agent must return]
+```
+
+### Manager → Retriever Contract
+
+```yaml
+# Prompt structure
+identity: "[name, role — 2 lines from wiki/identity.md]"
+task: "Retrieve [mode: sweep|targeted]"
+inputs:
+  mode: "sweep"  # or "targeted"
+  # If sweep:
+  subscriptions_path: "wiki/subscriptions.md"
+  time_range: "last 24 hours"  # or "last 7 days", etc.
+  # If targeted:
+  source_type: "sharepoint-doc"  # or "ado-work-item", "teams-channel", etc.
+  source_ref: "https://..." # or work item ID, channel ID, etc.
+schema_context:
+  - "Tool Discovery Log sections relevant to requested tools"
+  - "Raw-First rule (save to raw/ before anything)"
+  - "Raw file naming conventions"
+constraints:
+  - "Save every retrieved item to raw/ with proper frontmatter"
+  - "Add index.md entry for each raw file created"
+  - "Return structured response, not prose"
+  - "If a tool fails, record failure in response AND in wiki/tools.md"
+
+# Expected response
+response_format:
+  status: "success | partial | failed"
+  raw_files_created:
+    - path: "raw/documents/2026-04-13-example.md"
+      title: "Example Doc"
+      summary: "One-line summary for index"
+  content:
+    # Structured representation of retrieved data
+    entities_detected: ["person: Vikas", "project: MAI Profile", ...]
+    key_facts: ["...", "..."]
+    action_items: ["...", "..."]
+  failed_sources:
+    - source: "WorkIQ-Mail"
+      error: "401 Unauthorized"
+      recoverable: true
+```
+
+### Manager → Analyst Contract
+
+```yaml
+# Prompt structure
+identity: "[name, role, focus areas — 5 lines from wiki/identity.md]"
+task: "Analyze [content_type: ingest|query|cross-reference]"
+inputs:
+  # If ingest analysis:
+  content: "[raw content OR path to raw file just created by Retriever]"
+  # If query:
+  question: "[user's question]"
+  index_content: "[full content of index.md]"
+  # If cross-reference (daily brief):
+  signals: "[structured output from Retriever]"
+  index_content: "[full content of index.md]"
+schema_context:
+  - "Entity routing table (full)"
+  - "First principles P4 (touch many pages), P5 (file-back), P8 (index-first)"
+  - "Cross-linking and citation format"
+constraints:
+  - "Read-only — never write to any file"
+  - "Use [[wikilinks]] for all citations"
+  - "Classify queries as LOOKUP or SYNTHESIS"
+  - "Return structured routing plan, not prose instructions"
+
+# Expected response
+response_format:
+  # For ingest:
+  routing_plan:
+    - target: "wiki/people.md"
+      action: "append"
+      content: "## Vikas Sabharwal\n- Role: ..."
+      citations: ["[[raw/documents/2026-04-13-example|Example Doc]]"]
+    - target: "wiki/todo.md"
+      action: "append"
+      section: "Do This Week"
+      content: "- [ ] Follow up with Vikas..."
+  action_items:
+    - description: "Follow up with Vikas on ADO comment"
+      source: "raw/documents/2026-04-13-example.md"
+      priority: "today"
+  key_takeaways:
+    - "Vikas confirmed GPU allocation is on track"
+    - "New blocker: Copilot dataset incident"
+  file_back_recommendation: null  # or { topic: "...", rationale: "..." }
+  
+  # For query:
+  answer: "[cited markdown answer]"
+  query_type: "lookup | synthesis"
+  pages_read: ["wiki/people.md", "wiki/projects/mai-profile.md"]
+  file_back_recommendation:
+    topic: "GPU Scaling Status Analysis"
+    rationale: "This synthesis connects 3 sources — worth preserving"
+    suggested_path: "wiki/overviews/gpu-scaling-status.md"
+  action_items: [...]
+```
+
+### Manager → Composer Contract
+
+```yaml
+# Prompt structure
+identity: "[full communication preferences section from wiki/identity.md]"
+task: "Draft [output_type] for [audience]"
+inputs:
+  playbook_path: "playbooks/ado-rag-workstream.md"  # Composer reads this file
+  data: "[structured facts from Analyst — key_takeaways, routing_plan, etc.]"
+  recipient:  # from wiki/people.md if applicable
+    name: "Tao Di"
+    role: "Tech Lead"
+    comm_style: "Direct, technical"
+  additional_context: "[any user instructions, e.g., 'emphasize the GPU risk']"
+schema_context:
+  - "Output format rules from playbooks/_defaults.md (if no specific playbook)"
+constraints:
+  - "Read-only — return draft content only, never write"
+  - "MUST read playbook file before drafting"
+  - "Match the playbook's structure, tone, and format exactly"
+  - "If playbook has Anti-Patterns section, actively avoid those patterns"
+
+# Expected response
+response_format:
+  draft: "[the actual output content — markdown, HTML, or whatever format the playbook specifies]"
+  format: "html | markdown | slide"
+  playbook_used: "playbooks/ado-rag-workstream.md"
+  playbook_missing: false  # true if no matching playbook was found
+  suggested_playbook_name: null  # if playbook_missing, suggest a name for the new playbook
+```
+
+### Manager → Actor Contract
+
+```yaml
+# Prompt structure
+identity: "[name — 1 line]"
+task: "Execute mutation plan"
+inputs:
+  mutations:
+    - type: "write"
+      target: "wiki/people.md"
+      action: "append"
+      content: "[exact content to write, from Analyst's routing_plan]"
+      citations: ["[[raw/documents/...]]"]
+    - type: "write"
+      target: "wiki/todo.md"
+      action: "append"
+      section: "Do This Week"
+      content: "[task content]"
+    - type: "send"
+      channel: "teams-channel"
+      target_id: "19:4ae170cb..."
+      content: "[draft content from Composer]"
+      save_raw_as: "raw/chats/2026-04-13-sent-ws-uu-example.md"
+    - type: "update-index"
+      entries:
+        - path: "wiki/people.md"
+          summary: "People directory — 42 people, VIP flags"
+    - type: "update-playbook-registry"
+      playbook: "playbooks/new-playbook.md"
+  session_ledger_entry:
+    operation: "ingest"
+    tools_used: ["WorkIQ-Word MCP"]
+    raw_sources: ["raw/documents/2026-04-13-example.md"]
+    wiki_pages: ["wiki/people.md", "wiki/todo.md"]
+    outcome: "Ingested example doc, 2 wiki pages updated"
+schema_context:
+  - "Raw-First rule (save outbound to raw/ BEFORE sending)"
+  - "Completion checklist"
+  - "Tool Discovery Log sections for outbound tools"
+constraints:
+  - "Execute mutations in order: raw/ first, then wiki/, then external sends"
+  - "Serialize writes to the same target page"
+  - "Run completion checklist before returning"
+  - "If any mutation fails, continue with remaining and report partial status"
+
+# Expected response
+response_format:
+  status: "success | partial | failed"
+  pages_written: ["wiki/people.md", "wiki/todo.md"]
+  pages_failed: []
+  sends_completed:
+    - channel: "teams-channel"
+      message_id: "1775789700377"
+  sends_failed: []
+  index_updated: true
+  playbook_registry_updated: false
+  checklist:
+    raw_saved: true
+    session_ledger: true
+    wiki_updated: true
+    index_updated: true
+    log_appended: true
+```
+
+### Manager → Auditor Contract
+
+```yaml
+# Prompt structure
+identity: "[name — 1 line]"
+task: "Audit [mode: full-lint | post-op-verify | schema-audit]"
+inputs:
+  # If post-op-verify:
+  actor_response: "[the Actor's structured response to verify against]"
+  expected_mutations: "[the mutation plan that was sent to Actor]"
+  # If full-lint:
+  vault_root: "[path to project folder]"
+  # If schema-audit:
+  schema_path: "CLAUDE.md"
+schema_context:
+  - "First principles (all 10, for full-lint)"
+  - "Completion checklist (for post-op-verify)"
+  - "Entity routing table (for schema-audit)"
+constraints:
+  - "Read-only — never write to any file"
+  - "Return structured report, not prose"
+
+# Expected response (full-lint)
+response_format:
+  wiki_health:
+    stale_pages: [{ page: "...", last_updated: "...", days_stale: 45 }]
+    orphan_pages: ["wiki/concepts.md"]
+    broken_links: [{ from: "...", to: "...", link: "[[missing]]" }]
+    bidirectional_gaps: [{ a: "...", b: "...", direction: "a→b only" }]
+  todo_accountability:
+    overdue: [{ task: "...", added: "...", days_open: 14 }]
+    completed: [{ task: "...", evidence: "..." }]
+  first_principles:
+    violations: [{ principle: "P4", page: "...", description: "..." }]
+  schema_audit:
+    overlapping_entities: [{ a: "vendor", b: "partner", overlap: "80%" }]
+    entity_count: 12
+    playbook_gaps: ["no playbook for 'meeting-notes' output type"]
+    stale_tools: [{ tool: "WeChat MCP", last_tested: "never" }]
+  auto_fixable: ["broken_links", "bidirectional_gaps", "index_entries"]
+  manual_review: ["overlapping_entities", "stale_pages"]
+
+# Expected response (post-op-verify)
+response_format:
+  verified: true | false
+  checks:
+    - check: "raw file exists"
+      path: "raw/documents/2026-04-13-example.md"
+      result: "pass"
+    - check: "index entry exists"
+      path: "index.md"
+      search: "2026-04-13-example"
+      result: "fail — not found in index"
+    - check: "log entry exists"
+      path: "log.md"
+      result: "pass"
+  failures: ["index entry missing for raw/documents/2026-04-13-example.md"]
+```
+
+## CLAUDE.md Schema Design
+
+The project's `CLAUDE.md` serves dual purposes:
+1. **Auto-loaded by Claude Code** when running from this folder — acts as the project's instruction file
+2. **The wiki schema** — defines all conventions, routing, and enforcement rules
+
+### What Goes In CLAUDE.md
+
+```markdown
+# [User's Name]'s Second Brain
+
+## What This Is
+Personal AI Chief of Staff — a persistent knowledge base with multi-agent architecture.
+Built on the LLM Wiki pattern by Andrej Karpathy.
+
+## Quick Start
+- `catch me up` / `daily brief` → morning signal sweep
+- `ingest [paste/link]` → save and process a source
+- `query [question]` → search your knowledge base
+- `draft [message/email/RAG]` → compose styled output
+- `lint` → health check
+- `remember [preference/correction]` → update your brain
+
+## How It Works
+This folder is both the agent system and your data store.
+- `wiki/identity.md` — who you are (loaded every session)
+- `wiki/` — your knowledge base (LLM-maintained)
+- `playbooks/` — your output styles (self-learning)
+- `raw/` — immutable source documents
+- `agents/` — the specialist agents that run the system
+
+## Agent Architecture
+Manager (this file routes to the right pipeline)
+  ├── Retriever — fetches data from external tools + files
+  ├── Analyst — extracts entities, synthesizes answers
+  ├── Composer — drafts styled output using playbooks
+  ├── Actor — writes vault, sends externally, runs checklist
+  └── Auditor — health checks, verification, schema audit
+
+## Operation Routing
+[How the Manager classifies intent and selects the pipeline]
+
+| User Says | Operation | Pipeline |
+|-----------|-----------|----------|
+| "catch me up", "daily brief" | Daily Brief | Retriever(sweep) → Analyst → Composer → Actor |
+| "ingest", "save", "process" | Ingest | Retriever(targeted) → Analyst → Actor(s) |
+| "what do I know about", "status of" | Query | Analyst → (Actor if file-back) |
+| "post to", "send", "draft", "write RAG" | Communication | Retriever → Analyst → Composer → Actor |
+| "write a slide", "summarize", "analyze" | Compose | Retriever → Analyst → Composer → iterate |
+| "lint", "health check" | Lint | Auditor → Actor(fixes) |
+| "remember", "from now on" | Feedback | Actor(update page) |
+
+## Entity Routing Table
+[Living table — grows as new entity types are discovered]
+
+| Entity | Home Page | What to Capture |
+|--------|-----------|----------------|
+| Person | wiki/people.md | name, alias, email, role, team, VIP, comm style, recent activity |
+| Project | wiki/projects/{name}.md | status, IDs, milestones, blockers, architecture |
+| Task | wiki/todo.md | description, source, added, due, owner, section |
+| Decision | wiki/decisions.md | what, rationale, date, who, status |
+| Priority | wiki/top-of-mind.md | focus area, theme, open question |
+| Link | wiki/bookmarks.md | URL, description, category |
+| Channel | wiki/channels.md | name, IDs, purpose, people |
+| Tool | wiki/tools.md | name, status, parameters, limitations |
+| Concept | wiki/concepts.md | name, description, source |
+| Relationship | wiki/people.md | who→who, how, context |
+
+## Enforcement Rules
+
+### Rule 1: Raw-First
+Every external interaction saves to raw/ BEFORE any other action.
+- Inbound: retrieve → save raw → update wiki
+- Outbound: compose → save raw → send
+
+### Rule 2: Session Ledger
+Every session maintains raw/sessions/YYYY-MM-DD-session.md
+
+### Rule 3: Completion Checklist
+Before returning results:
+- [ ] Raw source saved
+- [ ] Session ledger updated  
+- [ ] Wiki pages updated with citations
+- [ ] index.md updated
+- [ ] log.md appended
+
+### Rule 4: Tool Discovery
+Record tool successes/failures in wiki/tools.md
+
+## First Principles (Karpathy)
+P1: Wiki is persistent, compounding | P2: Raw sources immutable
+P3: LLM owns the wiki | P4: Single source touches many pages
+P5: Good answers filed back | P6: Schema is discipline
+P7: Maintenance cost → zero | P8: Index-first navigation
+P9: Lint keeps wiki healthy | P10: Connections = content
+```
+
+### What Does NOT Go In CLAUDE.md
+
+| Content | Where It Lives Instead |
+|---------|----------------------|
+| User identity (name, role, team) | `wiki/identity.md` |
+| Communication preferences | `wiki/identity.md` |
+| Key stakeholders | `wiki/people.md` |
+| Output format rules | `playbooks/_defaults.md` |
+| Tool configuration | `wiki/tools.md` |
+| Subscriptions | `wiki/subscriptions.md` |
+
+**CLAUDE.md is the schema. The data is in wiki/.**
+
+## Collaboration: GitHub Repository
+
+This plan is a living design document. Move to GitHub so multiple contributors can refine it via PRs.
+
+### Repository Setup
+- **Repo:** `agentictaskx/second-brain-agent` (or preferred org)
+- **Branch strategy:** `main` for stable design, feature branches for proposals
+- **Contributing:** Design changes via PR with rationale
+
+### What Goes in the Repo
+- This plan → `docs/DESIGN.md`
+- Agent definitions → `agents/*.md`
+- Schema → `CLAUDE.md`
+- Starter playbooks → `playbooks/*.md` (generic templates)
+- Wiki structure → `wiki/` (empty folders + README per folder explaining purpose)
+
+### What Does NOT Go in the Repo (User-Specific, gitignored)
+- `wiki/identity.md`, `wiki/people.md`, `wiki/subscriptions.md` (personal data)
+- `raw/` (personal source documents)
+- `raw/sessions/` (session ledgers)
+
+The repo ships with template examples (e.g., `wiki/identity.example.md`) that users copy and fill in.
 
 ### Phase 1: Scaffold
 - [ ] Create folder structure (agents/, skills/, wiki/, playbooks/, raw/, references/, scripts/)
 - [ ] Create `.claude-plugin/plugin.json`
-- [ ] Create `CLAUDE.md` (schema — evolved from current vault CLAUDE.md, storage-agnostic, agent routing table)
+- [ ] Create `CLAUDE.md` (schema — storage-agnostic, agent routing table, entity routing table, enforcement rules)
 - [ ] Create `index.md`, `log.md` (seed from existing vault or empty)
 - [ ] Create `scripts/state-manager.sh`
 - [ ] Create `references/completion-checklist.md`, `references/tool-fallback-chains.md`
@@ -689,11 +1156,12 @@ The system works with ANY level of setup:
 
 ### Phase 2: Agents + Skill
 - [ ] Create `skills/SKILL.md` (thin dispatcher — 7 operation types)
-- [ ] Create `agents/manager.md` (orchestrator — intent classification, playbook selection, identity loading)
-- [ ] Create `agents/retriever.md` (all inbound data — sweep or targeted, with fallback chains)
-- [ ] Create `agents/thinker.md` (the brain — entity extraction, synthesis, styled drafting via playbooks)
-- [ ] Create `agents/actor.md` (all mutations — vault writes, external sends, index/log, completion checklist)
-- [ ] Create `agents/auditor.md` (read-only lint, health checks, first-principles audit)
+- [ ] Create `agents/manager.md` (orchestrator — intent classification, ambiguity handling, playbook selection, identity loading)
+- [ ] Create `agents/retriever.md` (all inbound data — sweep or targeted, with fallback chains, structured error responses)
+- [ ] Create `agents/analyst.md` (entity extraction, query synthesis, routing plans, lookup vs synthesis classification)
+- [ ] Create `agents/composer.md` (styled drafting via playbooks + identity + recipient context)
+- [ ] Create `agents/actor.md` (all mutations — vault writes, external sends, index/log, playbook registry, completion checklist, structured error responses)
+- [ ] Create `agents/auditor.md` (lint, post-op verification, schema audit, first-principles audit)
 
 ### Phase 3: Data Seeding
 - [ ] Create `wiki/identity.md` (merge from CLAUDE.md + mai-cos/context/me.md)
@@ -707,26 +1175,34 @@ The system works with ANY level of setup:
 ### Phase 4: CLAUDE.md Thinning
 - [ ] Remove personal data from global ~/.claude CLAUDE.md (identity, preferences, stakeholders)
 - [ ] Ensure project CLAUDE.md is storage-agnostic (no Obsidian-specific rules)
-- [ ] Add agent routing table + bootstrap detection to project CLAUDE.md
+- [ ] Add agent routing table + bootstrap detection + schema growth rules to project CLAUDE.md
 
 ### Phase 5: Install + Test
 - [ ] Install plugin (symlink or settings.json)
 - [ ] Initialize git repo
 - [ ] Test bootstrap flow (empty wiki → interview → identity created)
 - [ ] Test all 7 operations: daily brief, ingest, query, communicate, compose, lint, feedback
-- [ ] Test playbook learning: correct an output → verify playbook updated → verify next draft uses updated style
+- [ ] Test playbook learning: correct output → verify playbook updated → verify next draft uses updated style
+- [ ] Test error handling: simulate MCP failure → verify Manager presents partial results + retry offer
+- [ ] Test post-op verification: ingest → Auditor verifies raw indexed, pages written, log updated
+- [ ] Test schema audit: add overlapping entity type → lint catches overlap → suggest merge
 
 ## Verification
 
-- [ ] 5 agent .md files have valid frontmatter (manager + retriever + thinker + actor + auditor)
+- [ ] 6 agent .md files have valid frontmatter (manager + retriever + analyst + composer + actor + auditor)
 - [ ] SKILL.md handles all 7 operation types
 - [ ] Bootstrap: empty wiki/ → first invocation interviews user → creates identity.md
 - [ ] Degradation: missing subscriptions.md → daily brief skips signal gathering with note
-- [ ] Test daily brief: manager → retriever (sweep) → thinker (draft) → actor (write + checklist)
-- [ ] Test ingest: manager → retriever (targeted) → thinker (analyze) → actor(s) in parallel (grouped by page)
-- [ ] Test query: manager → thinker → (actor if file-back)
-- [ ] Test communicate: manager → thinker (with playbook) → actor (save raw + send)
-- [ ] Test lint: manager → auditor → actor (fixes)
-- [ ] Test feedback: user corrects → actor updates playbook → next thinker draft matches
-- [ ] Write conflict: ingest routing 3 people to wiki/people.md → all 3 go to same Actor instance (serialized)
-- [ ] Identity caching: first invocation reads identity.md, subsequent invocations use cached version from session ledger
+- [ ] Ambiguity: "check on Kunyang" → Manager asks user to clarify intent
+- [ ] Daily brief: manager → retriever (sweep) → analyst (cross-ref) → composer (draft) → actor (write) → auditor (verify)
+- [ ] Ingest: manager → retriever (targeted) → analyst (entities) → actor(s) in parallel (grouped by page)
+- [ ] Query lookup: manager → analyst → answer (no file-back prompt)
+- [ ] Query synthesis: manager → analyst → answer + file-back prompt → actor (if accepted)
+- [ ] Communicate: manager → retriever → analyst → composer (with playbook) → actor (save raw + send)
+- [ ] Lint: manager → auditor (wiki + schema + post-op) → actor (fixes)
+- [ ] Feedback: user corrects → actor updates playbook + _index.md → next composer draft matches
+- [ ] Write conflict: 3 people to wiki/people.md → all go to same Actor instance (serialized)
+- [ ] Identity caching: first invocation reads, subsequent use cached version
+- [ ] Error recovery: MCP fails → Retriever returns status: partial → Manager shows what worked + offers retry
+- [ ] Schema drift: 15 entity types → Auditor flags for review during lint
+- [ ] Post-op verify: Actor writes but misses index → Auditor catches orphaned raw file

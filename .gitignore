@@ -1,7 +1,30 @@
-# State files (ephemeral)
+# User-specific data (personal — each user creates their own)
+# These are NOT committed to the shared repo
+wiki/identity.md
+wiki/people.md
+wiki/subscriptions.md
+wiki/todo.md
+wiki/top-of-mind.md
+wiki/decisions.md
+wiki/concepts.md
+wiki/channels.md
+wiki/bookmarks.md
+wiki/tools.md
+wiki/projects/
+wiki/reviews/
+wiki/overviews/
+
+# Raw sources (personal data)
+raw/
+
+# Session state (ephemeral)
 raw/sessions/state.json
 
-# Obsidian metadata (optional — only present if opened in Obsidian)
+# Index and log (user-specific, rebuilt by the system)
+index.md
+log.md
+
+# Obsidian metadata (optional)
 .obsidian/
 
 # OS files
@@ -9,6 +32,9 @@ raw/sessions/state.json
 Thumbs.db
 desktop.ini
 
-# Temp/scratch
+# Temp
 scratch/
 *.tmp
+
+# Old plan file (moved to docs/DESIGN.md)
+PLAN.md
