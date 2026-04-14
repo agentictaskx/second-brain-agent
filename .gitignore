@@ -1,24 +1,17 @@
 # User-specific data (personal — each user creates their own)
 # These are NOT committed to the shared repo
-wiki/identity.md
-wiki/people.md
-wiki/subscriptions.md
-wiki/todo.md
-wiki/top-of-mind.md
-wiki/decisions.md
-wiki/concepts.md
-wiki/channels.md
-wiki/bookmarks.md
-wiki/tools.md
-wiki/projects/
-wiki/reviews/
-wiki/overviews/
+# Ignore everything in wiki/ (personal data created at bootstrap)
+wiki/
+
+# Raw sources (personal data)
+raw/
 
 # Raw sources (personal data)
 raw/
 
 # Session state (ephemeral)
 raw/sessions/state.json
+SESSION-BOOTSTRAP.md
 
 # Index and log (user-specific, rebuilt by the system)
 index.md

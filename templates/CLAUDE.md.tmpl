@@ -1,0 +1,109 @@
+# {{user_name}}'s Second Brain
+
+## What This Is
+Personal AI Chief of Staff -- a persistent knowledge base with multi-agent architecture.
+Built on the LLM Wiki pattern by Andrej Karpathy.
+
+## Quick Start
+- `catch me up` / `daily brief` -- morning signal sweep
+- `ingest [paste/link]` -- save and process a source
+- `query [question]` -- search your knowledge base
+- `draft [message/email/RAG]` -- compose styled output
+- `lint` -- health check
+- `remember [preference/correction]` -- update your brain
+
+## How It Works
+This folder is your personal data vault. The agent system (plugin) reads and writes here.
+- `wiki/identity.md` -- who you are (loaded every session)
+- `wiki/` -- your knowledge base (LLM-maintained)
+- `playbooks/` -- your output styles (self-learning)
+- `raw/` -- immutable source documents
+
+The agents live in the plugin at `{{plugin_root}}`:
+- `{{plugin_root}}/agents/manager.md` -- orchestrator
+- `{{plugin_root}}/agents/retriever.md` -- data fetcher
+- `{{plugin_root}}/agents/analyst.md` -- entity extractor & synthesizer
+- `{{plugin_root}}/agents/composer.md` -- output stylist
+- `{{plugin_root}}/agents/actor.md` -- mutation executor
+- `{{plugin_root}}/agents/auditor.md` -- health checker
+
+## Agent Architecture
+```
+Manager (orchestrator -- routes to the right pipeline)
+  |-- Retriever -- fetches data from external tools + files
+  |-- Analyst -- extracts entities, synthesizes answers
+  |-- Composer -- drafts styled output using playbooks
+  |-- Actor -- writes vault, sends externally, runs checklist
+  \-- Auditor -- health checks, verification, schema audit
+```
+
+## Operation Routing
+
+| User Says | Operation | Pipeline |
+|-----------|-----------|----------|
+| "catch me up", "daily brief" | Daily Brief | Retriever(sweep) -> Analyst -> Composer -> Actor |
+| "ingest", "save", "process" | Ingest | Retriever(targeted) -> Analyst -> Actor(s) |
+| "what do I know about", "status of" | Query | Analyst -> (Actor if file-back) |
+| "post to", "send", "draft", "write RAG" | Communication | Retriever -> Analyst -> Composer -> Actor |
+| "write a slide", "summarize", "analyze" | Compose | Retriever -> Analyst -> Composer -> iterate |
+| "lint", "health check" | Lint | Auditor -> Actor(fixes) |
+| "remember", "from now on" | Feedback | Actor(update page) |
+
+## Entity Routing Table
+
+> Living table -- grows as new entity types are discovered.
+
+| Entity | Home Page | What to Capture |
+|--------|-----------|----------------|
+| Person | wiki/people.md | name, alias, email, role, team, VIP, comm style, recent activity |
+| Project | wiki/projects/{name}.md | status, IDs, milestones, blockers, architecture |
+| Task | wiki/todo.md | description, source, added, due, owner, section |
+| Decision | wiki/decisions.md | what, rationale, date, who, status |
+| Priority | wiki/top-of-mind.md | focus area, theme, open question |
+| Link | wiki/bookmarks.md | URL, description, category |
+| Channel | wiki/channels.md | name, IDs, purpose, people |
+| Tool | wiki/tools.md | name, status, parameters, limitations |
+| Concept | wiki/concepts.md | name, description, source |
+| Relationship | wiki/people.md | who->who, how, context |
+
+## Enforcement Rules
+
+### Rule 1: Raw-First
+Every external interaction saves to `raw/` BEFORE any other action.
+- Inbound: retrieve -> save raw -> update wiki
+- Outbound: compose -> save raw -> send
+
+### Rule 2: Session Ledger
+Every session maintains `raw/sessions/YYYY-MM-DD-session.md`
+
+### Rule 3: Completion Checklist
+Before returning results (see `{{plugin_root}}/references/completion-checklist.md`):
+- [ ] Raw source saved
+- [ ] Session ledger updated
+- [ ] Wiki pages updated with citations
+- [ ] index.md updated
+- [ ] log.md appended
+
+### Rule 4: Tool Discovery
+Record tool successes/failures in `wiki/tools.md`.
+See `{{plugin_root}}/references/tool-fallback-chains.md` for fallback order.
+
+## First Principles (Karpathy)
+- **P1:** Wiki is persistent, compounding -- knowledge compiled once, kept current
+- **P2:** Raw sources immutable -- never modify originals in `raw/`
+- **P3:** LLM owns the wiki -- agents maintain all wiki pages
+- **P4:** Single source touches many pages -- one ingest updates people, projects, todo, etc.
+- **P5:** Good answers filed back -- synthesis worth keeping goes to `wiki/overviews/`
+- **P6:** Schema is discipline -- this file defines the rules
+- **P7:** Maintenance cost approaches zero -- more agents != better
+- **P8:** Index-first navigation -- always read `index.md` before drilling into pages
+- **P9:** Lint keeps wiki healthy -- regular audits catch rot
+- **P10:** Connections = content -- cross-links between pages are knowledge
+
+## Bootstrap Detection
+If `wiki/identity.md` does not exist -> enter bootstrap mode:
+1. Interview user for name, role, team, org
+2. Create `wiki/identity.md`
+3. Ask for key stakeholders -> create `wiki/people.md`
+4. Ask for monitored channels -> create `wiki/subscriptions.md`
+5. Ask for top priorities -> create `wiki/top-of-mind.md` + `wiki/todo.md`

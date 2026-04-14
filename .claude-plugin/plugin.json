@@ -1,5 +1,29 @@
 {
   "name": "second-brain-agent",
+  "description": "Personal AI Chief of Staff — persistent knowledge base with multi-agent architecture. Supports daily briefs, document ingestion, knowledge queries, styled communication, vault auditing, and preference learning. Built on the LLM Wiki pattern.",
   "version": "1.0.0",
-  "description": "Personal AI Chief of Staff — persistent knowledge base with manager + specialist sub-agent architecture. Unifies second-brain wiki and daily productivity into one system."
+  "author": {
+    "name": "Neal Zhang",
+    "email": "nealzhang@microsoft.com"
+  },
+  "license": "MIT",
+  "keywords": [
+    "second-brain",
+    "knowledge-base",
+    "personal-assistant",
+    "chief-of-staff",
+    "multi-agent",
+    "llm-wiki",
+    "daily-brief",
+    "productivity"
+  ],
+  "engines": {
+    "claude-code": ">=1.0.0"
+  },
+  "optional_mcps": [
+    "workiq-mcp",
+    "azure-devops-mcp",
+    "slack-mcp",
+    "obsidian"
+  ]
 }

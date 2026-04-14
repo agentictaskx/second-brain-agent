@@ -1,0 +1,85 @@
+---
+title: Tools & MCPs
+date: "{{date}}"
+type: wiki
+entity_type: tool
+source_count: 0
+last_updated: "{{date}}"
+tags:
+  - tools
+  - plugins
+  - mcp
+---
+
+# Tools & MCPs
+
+Catalog of available plugins, MCP servers, and tools. Populated during bootstrap via MCP detection, then updated as tools are tested.
+
+---
+
+## Quick Lookup: When Do I Use What?
+
+| I want to... | Use this |
+|---|---|
+| Check emails/calendar | `WorkIQ-Mail`, `WorkIQ-Calendar` |
+| Send/read Teams messages | `WorkIQ-Teams` |
+| Read/send Slack messages | `slack-mcp` |
+| Query ADO work items/PRs | `azure-devops-mcp` |
+| Manage Azure resources | `azure-mcp-server` |
+| Manage Obsidian notes | `obsidian-vault` MCP |
+| Search the web | `web-search` skill (Copilot CLI) |
+| Read library docs | `context7` |
+
+<!-- Bootstrap: This table is auto-populated during setup based on detected MCPs. Add custom entries as you discover tools. -->
+
+---
+
+## MCP Availability
+
+Detected during bootstrap. Updated when tools are tested.
+
+| Service | MCP Prefix | Status | Notes |
+|---------|------------|--------|-------|
+| Email | `mcp__WorkIQ-Mail__` | <!-- Bootstrap: Detected during setup --> | |
+| Calendar | `mcp__WorkIQ-Calendar__` | <!-- Bootstrap: Detected during setup --> | |
+| Teams | `mcp__WorkIQ-TeamsV1__` | <!-- Bootstrap: Detected during setup --> | |
+| SharePoint | `mcp__WorkIQ-SharePoint__` | <!-- Bootstrap: Detected during setup --> | |
+| OneDrive | `mcp__WorkIQ-OneDrive__` | <!-- Bootstrap: Detected during setup --> | |
+| Word | `mcp__WorkIQ-Word__` | <!-- Bootstrap: Detected during setup --> | |
+| Copilot | `mcp__WorkIQ-Copilot__` | <!-- Bootstrap: Detected during setup --> | |
+| ADO | `mcp__plugin_azure-devops-mcp` | <!-- Bootstrap: Detected during setup --> | |
+| Slack | `mcp__plugin_slack-mcp_slack__` | <!-- Bootstrap: Detected during setup --> | |
+| Obsidian | `mcp__plugin_user-mcp-obsidian_obsidian__` | <!-- Bootstrap: Detected during setup --> | |
+
+---
+
+## Tool Discovery Log
+
+Record tool successes and failures here. This is the ground truth for what works on this device.
+
+### Verified Working
+
+| Tool | Operation | Last Tested | Notes |
+|------|-----------|-------------|-------|
+| File system (Read/Write/Edit) | All | Always | Always available — universal fallback |
+| Bash | All | Always | Always available |
+
+### Known Failures
+
+| Tool | Operation | Error | Recoverable | Last Tested |
+|------|-----------|-------|-------------|-------------|
+| <!-- Bootstrap: Failures are logged here automatically as you use the system --> | | | | |
+
+---
+
+## MCP Tool Reference — Parameter Schemas & Gotchas
+
+<!-- Bootstrap: Add parameter schemas and gotchas as you discover them through usage. See examples/ for a mature tools.md with full schemas documented. -->
+
+### Troubleshooting
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Missing required parameter` | Wrong parameter name | Check tool schema |
+| `invalid_grant` | OAuth token expired | Refresh tokens, restart Claude Code |
+| Output exceeds token limit | No `$select` | Add `$select` to limit fields |

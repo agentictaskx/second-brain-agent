@@ -1,0 +1,45 @@
+---
+title: Todo
+date: "{{date}}"
+type: wiki-living
+tags:
+  - todo
+  - tasks
+last_updated: "{{date}}"
+---
+
+# Todo
+
+Tasks, action items, and follow-ups. Updated by ingests (auto-extracted) and by you directly.
+
+**Task format:** `- [ ] Description` followed by metadata tags:
+- `src:[[link]]` -- where the task came from
+- `added:YYYY-MM-DD` -- when discovered
+- `due:YYYY-MM-DD` -- deadline (optional)
+- `done:YYYY-MM-DD` -- completion date (added when marked done)
+
+Deduplication: match by description + source. Don't add if a matching task already exists.
+
+## Do Today
+
+<!-- Bootstrap: Add your most urgent tasks here. They'll also be auto-populated from ingested sources. -->
+
+## Do This Week
+
+<!-- Bootstrap: Add tasks for this week. Ingested meeting notes and emails will add items here automatically. -->
+
+## Waiting / Follow-Ups
+
+<!-- Bootstrap: Items you're waiting on from others. Format:
+- [ ] **X days no answer** Description `src:[[source]]` `added:YYYY-MM-DD`
+-->
+
+## Done
+
+<!-- Completed tasks are moved here with `done:YYYY-MM-DD` tag. Periodically archived during lint. -->
+
+## Backlog
+
+<!-- Bootstrap: Lower-priority items and future work. -->
+
+<!-- LLM: when ingesting sources, extract action items and add here with src:[[source-link]] and added:date. Check for duplicates before adding. -->
