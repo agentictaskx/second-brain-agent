@@ -31,10 +31,10 @@ AI/ML, ranking systems, LLMs, user understanding, agentic development (post-trai
 | Person | Role | Email | Relationship | VIP |
 |--------|------|-------|-------------|-----|
 | Jacob Rossi | CVP | jacobrossi@microsoft.com | Executive sponsor | Yes |
-| Julia Beizer | VP of Product | juliabeizer@microsoft.com | Stakeholder | Yes |
-| Sridhar Iyer | VP of Engineering | sriiyer@microsoft.com | Stakeholder | Yes |
+| Julia Beizer | CVP of Product | juliabeizer@microsoft.com | Stakeholder | Yes |
+| Sridhar Iyer | CVP of Engineering | sriiyer@microsoft.com | Stakeholder | Yes |
 | Rukmini Iyer | CVP of Content & Monetization | ruiyer@microsoft.com | Stakeholder | Yes |
-| Umesh Shankar | VP of Copilot PDI Infrastructure | umeshshankar@microsoft.com | Stakeholder (Data Foundations) | |
+| Umesh Shankar | CVP of Copilot PDI Infrastructure | umeshshankar@microsoft.com | Stakeholder (Data Foundations) | |
 | Tao Di | Tech Lead | taodi@microsoft.com | Workstream partner | |
 
 ## Active Projects

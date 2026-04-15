@@ -1,6 +1,6 @@
 # Second Brain Agent 🧠
 
-> 🌅 **"Catch me up."** — Wake up, say two words, and your AI Chief of Staff sweeps your inbox, Teams, calendar, and ADO overnight signals into a single daily brief. Priorities updated. Action items filed. Wiki current.
+> 🌅 **"Catch me up."** — Say two words, and your AI Chief of Staff sweeps your inbox, chat, calendar, and project tracker into a single daily brief. Priorities updated. Action items filed. Knowledge base current.
 >
 > 🪶 **Zero dependencies, zero lock-in.** The entire system is plain Markdown files — no database, no Docker, no daemon. Every agent is a single `.md` file readable by any LLM. Fork it, adapt it, make it yours.
 >
@@ -17,7 +17,7 @@ git clone https://github.com/nealzhang_microsoft/second-brain-agent.git
 
 # 2. Use — that's it
 claude
-> catch me up           # daily brief — bootstrap interview runs automatically on first use
+> catch me up           # daily brief — bootstrap interview runs on first use
 > ingest [paste text]   # save anything to your brain
 > what do I know about  # query your knowledge base
 > draft a reply to...   # compose styled output
@@ -26,7 +26,7 @@ claude
 
 > 📋 **First run:** The system detects no vault exists and walks you through a **5-question bootstrap interview** — name, stakeholders, channels, priorities, communication style. After that, every command works immediately.
 >
-> 🔌 **Zero MCPs required.** All operations work without any MCP servers installed. MCPs add capabilities progressively — install only what you need. [Details →](#-mcp-dependencies)
+> 🔌 **Zero external tools required.** All operations work without any MCP servers. MCP integrations (email, chat, calendar, project trackers) add capabilities progressively — install only what you need. [Details →](#-mcp-integrations)
 
 ## 🎯 What It Does
 
@@ -34,15 +34,196 @@ claude
 
 | Say This | What Happens |
 |----------|-------------|
-| `catch me up` / `daily brief` | 🌅 Sweeps email, Teams, calendar, ADO → cross-references with your priorities → styled brief → wiki updated |
+| `catch me up` / `daily brief` | 🌅 Sweeps email, chat, calendar, project tracker → cross-references with your priorities → styled brief → wiki updated |
 | `ingest` / `save this` | 📥 Saves to `raw/`, extracts entities, routes to wiki pages (people, projects, tasks, decisions) |
 | `what do I know about X` | 🔍 Searches wiki, synthesizes answer with citations, offers to file back to `wiki/overviews/` |
-| `draft` / `post to` / `email` | 📤 Picks playbook by audience + channel, drafts styled output, sends via MCP on confirmation |
+| `draft` / `post to` / `email` | 📤 Picks playbook by audience + channel, drafts styled output, sends on confirmation |
 | `summarize` / `analyze` | ✍️ Like communicate but for you — iterates until you approve |
 | `lint` / `health check` | 🔧 Full vault audit: schema, orphans, index consistency, stale entries |
 | `remember` / `from now on` | 🧠 Updates the right wiki page or playbook based on what you're correcting |
 
 > 💡 **Classification is by intent, not keywords.** "What's going on with the team?" → daily brief. "What's going on with Project X?" → query. The dispatcher figures it out.
+
+---
+
+## 🧬 How Knowledge Extraction Works
+
+This is the core of Second Brain — how raw, unstructured data from diverse sources becomes structured, queryable, cross-linked knowledge.
+
+### The Pipeline: Raw → Extract → Route → Link
+
+```
+                                    ┌─── wiki/people.md
+                                    ├─── wiki/projects/X.md
+  Email ──┐                         ├─── wiki/todo.md
+  Chat  ──┤   ┌───────────┐   ┌────┤─── wiki/decisions.md
+  Cal   ──┼──▶│ Retriever  │──▶│    ├─── wiki/top-of-mind.md
+  ADO   ──┤   │ (raw-first)│   │    ├─── wiki/bookmarks.md
+  Docs  ──┤   └───────────┘   │    └─── wiki/concepts.md
+  Paste ──┘         │         │
+              ┌─────▼─────┐   │    Entity Routing Table
+              │  Analyst   │───┘    (defined in CLAUDE.md)
+              │ (extract + │
+              │  route)    │
+              └────────────┘
+```
+
+### Step 1: Raw-First Rule (Data Integrity)
+
+**Every piece of inbound data is saved verbatim to `raw/` BEFORE any processing.** This is non-negotiable — it's the foundation of the system's data integrity.
+
+```
+raw/
+├── documents/2026-04-13-q2-planning-doc.md
+├── emails/2026-04-13-budget-approval.md
+├── channels/2026-04-13-team-standup-digest.md
+├── chats/2026-04-13-alice-pipeline-delay.md
+├── meetings/2026-04-13-sprint-planning.md
+└── articles/2026-04-13-karpathy-llm-wiki.md
+```
+
+Each raw file includes frontmatter:
+
+```markdown
+---
+type: email
+source: alice@example.com
+retrieved: 2026-04-13T09:15:00Z
+tool_used: WorkIQ-Mail MCP
+---
+
+# Re: Q2 Budget Allocation
+
+[Full content preserved as-is]
+```
+
+**Why raw-first?** If entity extraction fails, the source data is preserved. If you want to re-process later with better extraction logic, the originals are untouched. It's the equivalent of write-ahead logging in databases.
+
+### Step 2: Entity Extraction (The Analyst)
+
+The Analyst agent reads raw content and extracts structured entities using the **Entity Routing Table** — a schema that maps entity types to their wiki home pages:
+
+| Entity | Home Page | What Gets Extracted |
+|--------|-----------|-------------------|
+| 👤 Person | `wiki/people.md` | name, alias, email, role, team, VIP flag, communication style, recent activity |
+| 📁 Project | `wiki/projects/{name}.md` | status, IDs, milestones, blockers, architecture decisions |
+| ✅ Task | `wiki/todo.md` | description, source, added date, due date, owner, priority section |
+| ⚖️ Decision | `wiki/decisions.md` | what was decided, rationale, date, who decided, status |
+| 🎯 Priority | `wiki/top-of-mind.md` | focus area, theme, open questions |
+| 🔗 Link | `wiki/bookmarks.md` | URL, description, category |
+| 💬 Channel | `wiki/channels.md` | name, IDs, purpose, key people |
+| 🔧 Tool | `wiki/tools.md` | name, status, parameters, limitations |
+| 💡 Concept | `wiki/concepts.md` | name, description, source reference |
+| 🤝 Relationship | `wiki/people.md` | who→who, how they relate, context |
+
+**Example: One email touches 4 wiki pages**
+
+An email from Alice saying *"The GPU allocation for Project Atlas is approved. Bob will handle deployment by Friday. Let's skip the weekly sync this week."*
+
+The Analyst extracts:
+
+```yaml
+entities:
+  - type: person
+    name: Alice
+    update: "Approved GPU allocation for Project Atlas"
+    target: wiki/people.md
+
+  - type: project
+    name: Project Atlas
+    update: "GPU allocation approved, deployment by Friday"
+    target: wiki/projects/atlas.md
+
+  - type: task
+    description: "Bob: Handle GPU deployment for Atlas"
+    due: "Friday"
+    owner: Bob
+    target: wiki/todo.md
+
+  - type: decision
+    what: "Skip weekly sync this week"
+    who: Alice
+    target: wiki/decisions.md
+```
+
+**This is Karpathy's Principle P4: "Single source touches many pages."** One email updates people, projects, tasks, and decisions simultaneously.
+
+### Step 3: Routing Plan → Mutations
+
+The Analyst produces a **routing plan** — a structured specification of exactly what should be written where. The Actor agent then executes these mutations in a strict order:
+
+```
+1. raw/ writes first      ← source preserved before anything else
+2. wiki/ page writes      ← create, append, or update sections
+3. External sends         ← only AFTER raw outbound is saved
+4. index.md updates       ← entries reference pages that now exist
+5. log.md append          ← records what actually happened
+6. Session ledger update  ← records in raw/sessions/
+```
+
+Every wiki update includes **citations** back to the raw source:
+
+```markdown
+## Alice Chen
+
+- **Role:** ML Platform Lead
+- **Team:** Infrastructure
+- Approved GPU allocation for [[raw/emails/2026-04-13-budget-approval|Project Atlas]] (2026-04-13)
+```
+
+### Step 4: Cross-Referencing (Daily Brief Intelligence)
+
+During a daily brief, the Analyst doesn't just summarize — it **cross-references** new signals against existing knowledge:
+
+```
+New signals (from Retriever sweep)     Existing knowledge (from wiki)
+─────────────────────────────────      ──────────────────────────────
+Email: "Atlas deployment delayed"   ×  wiki/projects/atlas.md: "deploy by Friday"
+                                       → CONFLICT detected: deadline at risk
+
+Teams: "New hire starting Monday"   ×  wiki/people.md: no entry for new hire
+                                       → NEW ENTITY: needs people.md entry
+
+Calendar: "1:1 with VP cancelled"   ×  wiki/top-of-mind.md: "prepare VP update"
+                                       → PRIORITY SHIFT: VP update no longer urgent
+
+ADO: "Bug #4521 marked critical"    ×  wiki/todo.md: not listed
+                                       → NEW TASK: add to "Do Today" section
+```
+
+This cross-referencing is what makes the daily brief intelligent — it doesn't just list what happened, it tells you **what changed, what conflicts, and what needs your attention.**
+
+### Step 5: Filed-Back Synthesis (Compounding Knowledge)
+
+When you query the system and get a useful synthesis, that answer gets **filed back** to `wiki/overviews/`:
+
+```
+You: "What's the status of all GPU-related work?"
+
+→ Analyst searches wiki, synthesizes across projects/atlas.md, todo.md, people.md
+→ Produces cited answer
+→ Offers: "Want me to save this as wiki/overviews/gpu-workstream-status.md?"
+→ If yes: synthesis becomes part of the knowledge base for future queries
+```
+
+**This is Karpathy's Principle P5: "Good answers filed back."** The wiki compounds — every query potentially adds knowledge.
+
+### The Feedback Loop
+
+```
+         ┌──────────────────────────────────────┐
+         │                                      │
+    raw/ ──▶ extract ──▶ wiki/ ──▶ query ──▶ overviews/
+         │                 │                    │
+         │                 └── daily brief ─────┤
+         │                      (cross-ref)     │
+         │                                      │
+         └──── "remember X" ◀── feedback ◀──────┘
+```
+
+Over time, the wiki becomes a **high-signal, low-noise knowledge base** that reflects exactly what matters to you — not a firehose of raw data, but curated, cross-linked, cited knowledge.
+
+---
 
 ## 🏗️ Architecture
 
@@ -70,7 +251,7 @@ SKILL.md → Manager → [Retriever → Analyst → Composer → Actor → Audit
 | Agent | Role | Reads | Writes |
 |-------|------|-------|--------|
 | 🎯 **Manager** | Orchestrator — loads identity, selects playbook, spawns pipeline | wiki/identity.md, playbooks/ | Nothing (delegates) |
-| 📡 **Retriever** | ALL inbound data — MCP sweeps, file reads, URL fetches | MCP tools, files, URLs | raw/ only |
+| 📡 **Retriever** | ALL inbound data — sweeps, file reads, URL fetches | MCP tools, files, URLs | raw/ only |
 | 🔬 **Analyst** | Entity extraction, synthesis, routing plans | wiki/, raw/ | Nothing (read-only) |
 | 🎨 **Composer** | Drafts styled output using playbooks + identity | playbooks/, wiki/identity.md | Nothing (read-only) |
 | ⚡ **Actor** | ALL mutations — vault writes, external sends, checklist | Mutation plan from Manager | wiki/, raw/, index.md, log.md |
@@ -80,11 +261,11 @@ SKILL.md → Manager → [Retriever → Analyst → Composer → Actor → Audit
 <summary>Example pipeline: Daily Brief</summary>
 
 ```
-1. Retriever(sweep)        — pulls email, Teams, calendar, ADO, Slack signals
+1. Retriever(sweep)         — pulls email, chat, calendar, project tracker signals
 2. Analyst(cross-reference) — compares signals against priorities and existing wiki
-3. Composer(daily-brief)   — formats using playbooks/daily-brief.md + identity
-4. Actor(update wiki)      — writes to wiki/todo.md, wiki/top-of-mind.md, log.md
-5. Auditor(verify)         — confirms all checklist items passed
+3. Composer(daily-brief)    — formats using playbooks/daily-brief.md + identity
+4. Actor(update wiki)       — writes to wiki/todo.md, wiki/top-of-mind.md, log.md
+5. Auditor(verify)          — confirms all checklist items passed
 ```
 
 </details>
@@ -93,46 +274,46 @@ SKILL.md → Manager → [Retriever → Analyst → Composer → Actor → Audit
 <summary>Example pipeline: Ingest</summary>
 
 ```
-1. Retriever(targeted)     — fetches the specific source (doc, email, URL, paste)
-2. Analyst(ingest)         — extracts entities, builds routing plan (person→people.md, task→todo.md, etc.)
-3. Actor(execute mutations) — writes raw/, updates wiki pages, updates index.md
-4. Auditor(post-op-verify) — verifies all planned mutations were executed
+1. Retriever(targeted)      — fetches the specific source (doc, email, URL, paste)
+2. Analyst(ingest)           — extracts entities, builds routing plan
+3. Actor(execute mutations)  — writes raw/, updates wiki pages, updates index.md
+4. Auditor(post-op-verify)   — verifies all planned mutations were executed
 ```
 
 </details>
 
-## 🔌 MCP Dependencies
+## 🔌 MCP Integrations
 
-**None required.** Everything works at zero MCPs. Each MCP you add unlocks more data sources and outbound channels.
+**None required.** Everything works at zero MCPs. Each integration you add unlocks more data sources and outbound channels.
 
-| Service | What It Unlocks | Install | Required? |
-|---------|----------------|---------|:---------:|
-| 📧 **Email** | Inbox sweep, compose & send email | `workiq-mcp` plugin | No |
-| 📅 **Calendar** | Calendar entries in daily briefs | `workiq-mcp` plugin | No |
-| 💬 **Teams** | Channel/chat monitoring, post to Teams | `workiq-mcp` plugin | No |
-| 📁 **SharePoint** | Retrieve SharePoint documents | `workiq-mcp` plugin | No |
-| 📂 **OneDrive** | Retrieve OneDrive files | `workiq-mcp` plugin | No |
-| 📝 **Word** | Read/write Word documents | `workiq-mcp` plugin | No |
-| 🔧 **Azure DevOps** | Work items, PRs, pipeline status | `azure-devops-mcp` plugin | No |
-| 💬 **Slack** | Slack channel monitoring, post to Slack | `slack-mcp` plugin | No |
-| 📓 **Obsidian** | Obsidian vault integration | `obsidian` MCP server | No |
+The system is designed to work with any MCP server that provides data access. Out of the box, it includes fallback chains for these categories:
 
-> 🔄 **Auto-detection:** On first run and every session, the system probes for available MCPs via `ToolSearch` and records results in `wiki/tools.md`. Install an MCP anytime — it's picked up automatically.
+| Category | What It Unlocks | Required? |
+|----------|----------------|:---------:|
+| 📧 **Email** | Inbox sweep, compose & send email | No |
+| 📅 **Calendar** | Calendar entries in daily briefs | No |
+| 💬 **Chat** | Channel/thread monitoring, post messages | No |
+| 📁 **Documents** | Retrieve docs from cloud storage | No |
+| 🔧 **Project Tracker** | Work items, PRs, pipeline status | No |
+| 📓 **Notes** | Note-taking app integration | No |
+| 💬 **Messaging** | Additional messaging platforms | No |
+
+> **Bring your own MCPs.** The system uses a [tool fallback chain](references/tool-fallback-chains.md) — if the primary tool fails, it tries alternatives, and ultimately falls back to "ask user to paste." You can plug in any MCP that provides email, chat, calendar, or document access.
+>
+> 🔄 **Auto-detection:** On each session, the system probes for available tools and records results in `wiki/tools.md`. Install an MCP anytime — it's picked up automatically.
 
 <details>
 <summary>Graceful degradation matrix</summary>
 
 | Operation | 0 MCPs | Some MCPs | All MCPs |
 |-----------|--------|-----------|----------|
-| **Daily Brief** | Vault-only: priorities, stale todos, upcoming items | Partial sweep: available sources only | Full sweep: email + calendar + Teams + ADO + Slack |
+| **Daily Brief** | Vault-only: priorities, stale todos, upcoming items | Partial sweep: available sources only | Full sweep across all channels |
 | **Ingest** | Paste/URL/file only | + Retrieve from available sources | Full retrieval from any source |
 | **Query** | Vault search with citations | Same (queries are vault-only) | + Pull fresh data if vault is stale |
-| **Communicate** | Draft → save to `raw/drafts/` for manual paste | Send via available channels | Full outbound: email, Teams, Slack, ADO |
+| **Communicate** | Draft → save for manual send | Send via available channels | Full outbound across all channels |
 | **Compose** | Full (vault-only operation) | + Retrieve source material | Full source retrieval |
 | **Lint** | Full vault audit | Same | Same |
 | **Feedback** | Full (vault write only) | Same | Same |
-
-When an MCP is unavailable, the system skips it, reports what was skipped, continues with available sources, and falls back through the [tool fallback chain](references/tool-fallback-chains.md).
 
 </details>
 
@@ -144,7 +325,7 @@ When an MCP is unavailable, the system skips it, reports what was skipped, conti
 git clone https://github.com/nealzhang_microsoft/second-brain-agent.git
 ```
 
-Then add the cloned directory to Claude Code's plugin sources. The `.claude-plugin/plugin.json` manifest handles registration.
+Add the cloned directory to Claude Code's plugin sources. The `.claude-plugin/plugin.json` manifest handles registration.
 
 ### Manual Install
 
@@ -174,7 +355,7 @@ Created automatically on first run:
 ├── wiki/
 │   ├── identity.md              # Who you are (loaded every session)
 │   ├── people.md                # People directory with context
-│   ├── channels.md              # Teams channels/chats with IDs
+│   ├── channels.md              # Chat channels with IDs
 │   ├── subscriptions.md         # Daily brief monitoring config
 │   ├── top-of-mind.md           # Current priorities
 │   ├── todo.md                  # Tasks and follow-ups
@@ -202,9 +383,9 @@ Playbooks are concrete output recipes — not abstract style guides. Each define
 |----------------|---------|
 | `daily-brief.md` | Morning signal sweep |
 | `email-status-brief.md` | Status emails to leadership |
-| `teams-channel-post.md` | Teams channel updates |
+| `teams-channel-post.md` | Chat channel updates |
 | `chat-message-polish.md` | Chat message refinement |
-| `ado-rag-workstream.md` | ADO RAG/workstream updates |
+| `ado-rag-workstream.md` | Project tracker updates |
 | `weekly-review.md` | Weekly review summaries |
 
 > **Override:** Create a playbook with the same name in `{vault}/playbooks/` — it takes precedence over the plugin default.
@@ -216,7 +397,7 @@ Playbooks are concrete output recipes — not abstract style guides. Each define
 | What | How |
 |------|-----|
 | 🧠 **Identity & preferences** | Edit `wiki/identity.md` directly, or say `"remember: I prefer bullet points"` |
-| 📡 **Daily brief sources** | Edit `wiki/subscriptions.md` — add channels, chats, email filters, ADO queries |
+| 📡 **Daily brief sources** | Edit `wiki/subscriptions.md` — add channels, chats, email filters |
 | 📚 **New wiki pages** | Create in `wiki/`, add to entity routing table in `CLAUDE.md` |
 | 🔗 **New entity types** | Add to the entity routing table — the Analyst starts routing automatically |
 
@@ -244,24 +425,23 @@ Playbooks are concrete output recipes — not abstract style guides. Each define
 
 | Problem | Cause | Fix |
 |---------|-------|-----|
-| "Token expired" / 401 errors | MCP auth tokens need refresh | Run `refresh-tokens` skill or re-authenticate |
-| "MCP not found" during daily brief | Plugin not installed or not loaded | Check `wiki/tools.md`. Install missing plugin |
-| "Vault not found" | Can't locate vault directory | Set `SECOND_BRAIN_VAULT` env var or check `~/.second-brain/config.json` |
 | Bootstrap didn't run | `wiki/identity.md` already exists | Delete `{vault}/wiki/identity.md` to re-trigger |
 | Playbook not applied | Not registered | Add to `{vault}/playbooks/_index.md` |
 | Daily brief is empty | No subscriptions | Edit `{vault}/wiki/subscriptions.md` |
-| Agent can't find files | `vault_root` resolved wrong | Run `cat ~/.second-brain/config.json` to verify |
+| MCP tool not detected | Plugin not loaded | Check `wiki/tools.md`. Install/enable the MCP plugin |
+| Auth errors (401) | Token expired | Refresh auth for the specific MCP provider |
+| Agent can't find files | `vault_root` resolved wrong | Check `~/.second-brain/config.json` |
 | Stale wiki data | Pages not updated | Run `lint` → then `ingest` fresh sources |
 
 </details>
 
 ## 📁 Examples
 
-The `examples/` directory contains **real examples** from a mature vault deployment — not synthetic data:
+The `examples/` directory contains **real examples** from a mature vault deployment:
 
 - `identity-example.md` — fully populated identity with communication preferences and writing styles
-- `people-example.md` — people directory with 20+ entries, roles, relationships, VIP flags
-- `channels-example.md` — Teams channels and chats with real IDs
+- `people-example.md` — people directory with 20+ entries, roles, relationships
+- `channels-example.md` — chat channels with IDs
 - `subscriptions-example.md` — complete daily brief subscription configuration
 
 > 💡 Use these as calibration for the level of detail the agents work best with. The richer your wiki, the better the outputs.
@@ -269,7 +449,7 @@ The `examples/` directory contains **real examples** from a mature vault deploym
 ## 🙏 Credits
 
 - **Concept:** [LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) by Andrej Karpathy
-- **Built by:** Neal Zhang (nealzhang@microsoft.com)
+- **Built by:** Neal Zhang
 
 ## 📄 License
 
