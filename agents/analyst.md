@@ -106,7 +106,7 @@ Identify these entity types in content:
 |-------------|-----------------|----------|
 | Person | Names, aliases, email addresses, roles mentioned | `{vault_root}/wiki/people.md` |
 | Project | Project names, initiative references, workstream mentions | `{vault_root}/wiki/projects/{name}.md` |
-| Task/Action | "should do", "need to", "follow up", "TODO", deadlines, commitments | `{vault_root}/wiki/todo.md` |
+| Task/Action | Multi-signal detection (see Task Signal Taxonomy below) | `{vault_root}/wiki/todo.md` |
 | Decision | "we decided", "the decision is", tradeoffs resolved, approvals | `{vault_root}/wiki/decisions.md` |
 | Priority/Theme | Recurring topics (3+ mentions), focus areas, open questions, escalations | `{vault_root}/wiki/top-of-mind.md` |
 | Link/URL | URLs worth saving, doc links, reference material | `{vault_root}/wiki/bookmarks.md` |
@@ -116,6 +116,36 @@ Identify these entity types in content:
 | Relationship | Org relationships (reports to, depends on, collaborates with) | `{vault_root}/wiki/people.md` (cross-ref) |
 
 **If you find an entity that doesn't fit any existing type**, include it in your response with a recommendation: "Found entity type not in routing table: [description]. Recommend creating `{vault_root}/wiki/{name}.md`."
+
+### Task Signal Taxonomy
+
+Use the following 7-signal taxonomy to detect task candidates with high recall. Each signal type has a confidence level and priority hint that inform downstream triage.
+
+| Signal Type | Detection Pattern | Example | Confidence | Priority Hint |
+|-------------|------------------|---------|------------|---------------|
+| **Direct Assignment** | "@name", "please do", "can you", "I need you to", imperative verbs targeting a person | "Neal, can you check the GPU status?" | high | Do Today |
+| **Commitment Made** | "I will", "I'll", "let me", "I'm going to", first-person future tense | "I'll send the doc to Vikas by Friday" | high | Do Today (self-assigned) |
+| **Deadline Mentioned** | "by Friday", "before EOD", "target date", "ETA", "due", any temporal deadline reference | "We need this by April 18" | high | Based on date proximity |
+| **Blocker/Dependency** | "blocked on", "waiting for", "need X before Y", "depends on", "can't proceed until" | "Blocked on Kinshu's data fix before scaling" | high | Waiting (create follow-up) |
+| **Decision Implication** | A decision creates work: "we decided to", "approved", "the plan is to", "going with option B" | "Approved dual-profile → need capacity sizing" | medium | Do This Week |
+| **Soft Ask** | "it would be great if", "we should probably", "might want to", "worth looking into", "consider" | "We should probably align with Ads team" | low | Backlog (candidate) |
+| **Escalation Signal** | "no response", "still waiting", "X days without", "hasn't replied", stale follow-up patterns | "Asked 10 days ago, no answer yet" | high | Do Today (needs escalation) |
+
+> **Recall over precision.** When in doubt about whether something is a task, EXTRACT IT. Recall is more important than precision — the user will curate interactively.
+
+**Deduplication against existing tasks:** Before adding a candidate, scan `{vault_root}/wiki/todo.md` for existing tasks with similar descriptions. If a match exists, set `existing_match` to the matching task description. The Manager will use this to offer a "merge" option instead of creating a duplicate.
+
+### Skip-List Awareness
+
+Before proposing task candidates, check `{vault_root}/wiki/todo.md` for skip-list entries. These are HTML comments at the bottom of the file in this format:
+
+```html
+<!-- skip: "description fragment" src:source-slug reason:reason -->
+```
+
+**Matching rules:**
+- If a candidate's description substantially matches a skip entry (same topic, same source or similar source), do NOT include it in `task_candidates`. Mark it internally as `skipped: true` but do not output it.
+- **Exception:** If the source is significantly different (new email vs. old channel message about the same topic), include it with a note: `note: "Previously skipped from different source — re-proposing"`.
 
 ### Routing Plan Format
 
@@ -203,6 +233,20 @@ action_items:
     priority: "today" | "this_week" | "backlog"
     due: "2026-04-15"  # if mentioned in source
 
+task_candidates:
+  - description: "Human-readable task description"
+    signal_type: "direct_assignment" | "commitment" | "deadline" | "blocker" | "decision_implication" | "soft_ask" | "escalation"
+    confidence: "high" | "medium" | "low"
+    assigned_to: "person name or null"
+    assigned_by: "person name, 'self', or 'system'"
+    due: "YYYY-MM-DD or null"
+    source: "[[raw/path/to/source]]"
+    context: "1-2 sentence quote or paraphrase showing WHY this is a task"
+    priority_hint: "today" | "this_week" | "waiting" | "backlog"
+    existing_match: "null or description of matching existing task in todo.md"
+
+# Prefer `task_candidates` for new integrations. `action_items` is retained for backward compatibility.
+
 key_takeaways:
   - "Vikas confirmed GPU allocation is on track"
   - "New blocker: Copilot dataset incident affecting eval pipeline"
@@ -239,6 +283,10 @@ routing_plan:
 
 action_items:
   # Aggregated across all signals
+
+task_candidates:
+  # Same format as ingest mode, aggregated across all signals
+  # Prefer `task_candidates` for new integrations. `action_items` is retained for backward compatibility.
 
 key_takeaways:
   # Top 5-10 takeaways for the daily brief, ordered by priority

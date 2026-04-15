@@ -146,6 +146,24 @@ All items ranked using this universal stack:
 
 ---
 
+## 📋 Task Review
+
+**New candidates:** [N] found ([H] high, [M] medium, [L] low confidence)
+- 📌 [N] direct assignments
+- 🤝 [N] commitments
+- ⏰ [N] deadlines
+- 🚫 [N] blockers
+- 🔗 [N] decision implications
+- 💭 [N] soft asks
+- 🔺 [N] escalations
+
+**Overdue:** [N] tasks past due date
+**Stale waiting:** [N] items with no response for 7+ days
+
+_Interactive review follows this brief._
+
+---
+
 ## Appendix
 
 ### Data Issues

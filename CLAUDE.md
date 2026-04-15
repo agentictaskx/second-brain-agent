@@ -50,7 +50,7 @@ Manager (this file routes to the right pipeline)
 |--------|-----------|----------------|
 | Person | wiki/people.md | name, alias, email, role, team, VIP, comm style, recent activity |
 | Project | wiki/projects/{name}.md | status, IDs, milestones, blockers, architecture |
-| Task | wiki/todo.md | description, source, added, due, owner, section |
+| Task | wiki/todo.md | 7 signal types: direct assignment, commitment, deadline, blocker, decision implication, soft ask, escalation. Extracted as candidates with confidence scoring. See agents/analyst.md Task Signal Taxonomy. |
 | Decision | wiki/decisions.md | what, rationale, date, who, status |
 | Priority | wiki/top-of-mind.md | focus area, theme, open question |
 | Link | wiki/bookmarks.md | URL, description, category |
@@ -58,6 +58,8 @@ Manager (this file routes to the right pipeline)
 | Tool | wiki/tools.md | name, status, parameters, limitations |
 | Concept | wiki/concepts.md | name, description, source |
 | Relationship | wiki/people.md | who→who, how, context |
+| Overview | wiki/overviews/{topic}.md | synthesis, cited sources, date compiled |
+| Review | wiki/reviews/{period}.md | period, highlights, lowlights, action items |
 
 ## Enforcement Rules
 

@@ -86,6 +86,23 @@ type: wiki
 - [Decision topic] — [participants] [source: [[wikilink]]]
 - ...
 
+## Task Metrics
+
+| Metric | Count |
+|--------|-------|
+| Tasks added this week | [N] |
+| — Direct assignments | [N] |
+| — Commitments | [N] |
+| — Deadlines | [N] |
+| — Blockers | [N] |
+| — Decision implications | [N] |
+| — Soft asks | [N] |
+| — Escalations | [N] |
+| Tasks completed this week | [N] |
+| Tasks skipped during review | [N] |
+| Current overdue count | [N] |
+| Avg days: extraction → completion | [N] |
+
 ## Sources
 
 - [[raw/documents/YYYY-MM-DD-slug|Display Name]]

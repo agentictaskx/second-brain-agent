@@ -164,6 +164,129 @@ Example: "I pulled your Teams channels and ADO updates, but email access failed 
 
 For critical operations (`ingest`, `daily-brief`), optionally spawn Auditor in `post-op-verify` mode after Actor completes. Pass the Actor's response and the original mutation plan so Auditor can verify everything was actually written.
 
+## Task Candidate Review
+
+Whenever the Analyst returns `task_candidates` in its output, the Manager runs an interactive review flow before passing mutations to the Actor. This is a cross-cutting pipeline step that triggers during `ingest`, `daily-brief`, and (sometimes) `communicate` operations.
+
+### When Task Review Triggers
+
+| Operation | Task Review? | Notes |
+|-----------|-------------|-------|
+| `daily-brief` | Yes — after Analyst cross-reference | Review new candidates as part of morning brief |
+| `ingest` | Yes — after Analyst extraction | Review candidates extracted from ingested content |
+| `query` | No | Queries don't extract tasks |
+| `communicate` | Sometimes — if Analyst finds tasks in composed content | Rare but possible |
+| `compose` | No | Composition doesn't extract tasks |
+| `lint` | No | Lint reports task issues, doesn't extract new ones |
+| `feedback` | No | Feedback updates preferences, not tasks |
+
+### Pipeline Step: Task Candidate Review
+
+After the Analyst returns `task_candidates`:
+
+1. **Sort candidates:** high confidence first, then medium, then low.
+2. **Check for existing matches:** The Analyst provides an `existing_match` field when a candidate looks like it duplicates a task already in `{vault_root}/wiki/todo.md`. Surface this to the user during review.
+3. **Present candidates to user for interactive review** (see protocol below).
+4. **Execute user's decisions via Actor** — build a mutation plan from accepted/skipped/merged decisions and spawn Actor(s) to write.
+
+### Task Candidate Review Protocol
+
+Present candidates one at a time using AskUserQuestion. For each candidate, display:
+
+```
+📋 Task Candidate [N/total] — confidence: [HIGH/MEDIUM/LOW]
+
+[emoji based on signal_type] [description]
+📧 Source: [source with readable name]
+🏷️ Signal: [signal_type in human-readable form]
+[📅 Due: date — if present]
+[👤 Assigned to: name — if present]
+[⚠️ Matches existing: "existing task description" — if existing_match is set]
+
+Context: "[context quote]"
+```
+
+**Signal type emojis:**
+
+| Signal Type | Emoji | Human-Readable Label |
+|-------------|-------|---------------------|
+| `direct_assignment` | 📌 | Direct Assignment |
+| `commitment` | 🤝 | Commitment Made |
+| `deadline` | ⏰ | Deadline Mentioned |
+| `blocker` | 🚫 | Blocker / Dependency |
+| `decision_implication` | ⚖️ | Decision Implication |
+| `soft_ask` | 💭 | Soft Ask |
+| `escalation` | 🔺 | Escalation Signal |
+
+**Review options (via AskUserQuestion):**
+
+For each candidate, present these options:
+
+- **"Accept → Do Today"** — add to Do Today section of `{vault_root}/wiki/todo.md`
+- **"Accept → This Week"** — add to Do This Week section
+- **"Accept → Waiting"** — add to Waiting / Follow-Ups section
+- **"Skip"** — don't add; save to skip list so the same task isn't re-proposed
+- **"Merge with existing"** — (only shown when `existing_match` is set) update the existing task instead of creating a new one
+
+**Follow-up prompts (only if key metadata is missing):**
+
+After the user selects an Accept option, ask follow-ups only when information is absent:
+
+- If no due date: "Set a due date? (or skip)"
+- If no owner and the task is not obviously self-assigned: "Who owns this? (or skip)"
+
+Do NOT ask follow-ups for skipped or merged candidates.
+
+**Batch mode (review fatigue prevention):**
+
+If there are more than 5 candidates, after showing the first 3 individually, ask:
+
+> "3 more candidates remaining. Review individually, or batch-accept all HIGH confidence items?"
+
+If the user chooses batch-accept:
+- Accept all remaining HIGH confidence candidates into the Do Today section.
+- Present remaining MEDIUM and LOW confidence candidates individually.
+- If no HIGH confidence items remain, continue individual review.
+
+### Actor Mutation Instructions
+
+After all candidates are reviewed, build a mutation plan and spawn Actor(s) to execute. Group mutations by target page per the Parallelism Rules below.
+
+**For each accepted candidate:**
+
+```yaml
+mutations:
+  - type: "write"
+    target: "{vault_root}/wiki/todo.md"
+    action: "append"
+    section: "Do Today" | "Do This Week" | "Waiting / Follow-Ups" | "Backlog"
+    content: "- [ ] [description] `src:[[source]]` `added:YYYY-MM-DD` [due:YYYY-MM-DD if set]"
+```
+
+**For each skipped candidate:**
+
+```yaml
+mutations:
+  - type: "write"
+    target: "{vault_root}/wiki/todo.md"
+    action: "append"
+    section: "<!-- skip list -->"
+    content: "<!-- skip: \"[description fragment]\" src:[source-slug] reason:[user's reason or 'user-skipped'] -->"
+```
+
+**For each merged candidate:**
+
+```yaml
+mutations:
+  - type: "write"
+    target: "{vault_root}/wiki/todo.md"
+    action: "update"
+    section: "[section containing existing task]"
+    content: "[updated task with merged info — append new context/source to existing task line]"
+```
+
+All todo.md mutations go to a single Actor instance (same target page). Other mutations (e.g., log.md, session ledger) can be parallelized per the rules below.
+
 ## Parallelism Rules
 
 When spawning multiple Actor instances:
